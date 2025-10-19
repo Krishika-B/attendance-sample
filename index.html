@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mobile Attendance Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    #reader {
+      width: 300px;
+      margin: 20px auto;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <h2>Scan Student ID</h2>
+  <button id="startScan">Start Scanner</button>
+  <div id="reader"></div>
+
+  <script>
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzKduterai3cmW_FgqVbG8p7ASxlfVc8IIr6n8CyT7l2NBdQTdVXOVIS-Fq0OYDCm2E/exec"; // Your Apps Script URL
+
+    function sendAttendance(studentId) {
+      fetch(WEB_APP_URL, {
+        method: 'POST',
+        body: JSON.stringify({ studentId, source: "mobile" }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.status === "ok") {
+          alert("Attendance marked for ID: " + studentId);
+        } else {
+          alert("Error: " + data.message);
+        }
+      })
+      .catch(err => alert("Error: " + err));
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+      // Stop scanning after one successful scan
+      html5QrcodeScanner.stop().then(() => {
+        console.log("Scanner stopped");
+      }).catch(err => console.log("Stop failed:", err));
+
+      sendAttendance(decodedText);
+    }
+
+    // Initialize scanner
+    let html5QrcodeScanner = new Html5Qrcode("reader");
+
+    // Start scanner on button click (required for mobile camera permissions)
+    document.getElementById("startScan").addEventListener("click", function() {
+      html5QrcodeScanner.start(
+        { facingMode: "environment" }, // use back camera
+        { fps: 10, qrbox: 250 },       // scanning config
+        onScanSuccess
+      ).catch(err => console.log("Camera start error: ", err));
+    });
+  </script>
+</body>
+</html>
