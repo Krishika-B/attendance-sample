@@ -4,90 +4,98 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Mobile Attendance Scanner</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      padding: 20px;
-    }
-    video {
-      width: 320px;
-      height: auto;
-      border: 2px solid #333;
-      border-radius: 10px;
-      margin-top: 20px;
-    }
-    button {
-      padding: 10px 20px;
-      font-size: 16px;
-      cursor: pointer;
-      background-color: #007BFF;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      margin: 5px;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+    #reader { width: 300px; margin: 20px auto; }
+    button { padding: 10px 20px; font-size: 16px; cursor: pointer; }
+    #status { margin-top: 12px; min-height: 24px; }
+    .ok { color: green; }
+    .err { color: red; }
   </style>
 </head>
 <body>
-  <h2>Scan Student ID (Barcode)</h2>
+  <h2>Scan Student ID</h2>
   <button id="startScan">Start Scanner</button>
-  <video id="camera" autoplay playsinline></video>
-  <p id="result"></p>
+  <button id="stopScan" style="display:none;">Stop Scanner</button>
+  <div id="reader"></div>
+  <div id="status"></div>
 
   <script>
-    const video = document.getElementById('camera');
-    const result = document.getElementById('result');
+    // <- PASTE your deployed Apps Script Web App URL below EXACTLY (replace the value if different) ->
+    const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwkZrNzat6Ah1PL91UQW8GuvbIuBKK9oVDWoDrAePg8g6H4JUaGcXqr7K7SlOkjsUnT/exec";
+    let html5QrcodeScanner = new Html5Qrcode("reader");
     let scanning = false;
 
-    // Function to start barcode scanner
-    async function startScanner() {
-      if (!('BarcodeDetector' in window)) {
-        alert("Your browser doesn’t support barcode scanning. Use Chrome or Edge on Android.");
-        return;
-      }
-
-      const formats = await BarcodeDetector.getSupportedFormats();
-      const detector = new BarcodeDetector({ formats });
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-        video.srcObject = stream;
-        scanning = true;
-
-        const scan = async () => {
-          if (!scanning) return;
-          try {
-            const barcodes = await detector.detect(video);
-            if (barcodes.length > 0) {
-              const studentId = barcodes[0].rawValue;
-              result.textContent = "Scanned ID: " + studentId;
-
-              scanning = false;
-              stream.getTracks().forEach(track => track.stop());
-
-              // ✅ TEST MODE: Show scanned ID only
-              alert("Scanned ID: " + studentId);
-              console.log("Scanned ID:", studentId);
-            }
-          } catch (err) {
-            console.error("Detection error:", err);
-          }
-          requestAnimationFrame(scan);
-        };
-        scan();
-
-      } catch (err) {
-        console.error("Camera access error:", err);
-        alert("Unable to access camera: " + err);
-      }
+    function setStatus(text, ok) {
+      const s = document.getElementById('status');
+      s.textContent = text;
+      s.className = ok ? 'ok' : 'err';
     }
 
-    // Event listener
-    document.getElementById("startScan").addEventListener("click", startScanner);
+    function sendAttendance(studentId, retries = 1) {
+      setStatus("Sending " + studentId + " ...", true);
+      return fetch(WEB_APP_URL, {
+        method: 'POST',
+        body: JSON.stringify({ studentId, source: "mobile" }),
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.status === "ok") {
+          setStatus("✓ Attendance marked: " + studentId, true);
+        } else {
+          setStatus("✗ Error: " + data.message, false);
+        }
+      })
+      .catch(err => {
+        if (retries > 0) {
+          setStatus("Network error, retrying...", false);
+          return sendAttendance(studentId, retries - 1);
+        } else {
+          setStatus("Network error: " + err, false);
+        }
+      });
+    }
+
+    function onScanSuccess(decodedText, decodedResult) {
+      setStatus("Scanned: " + decodedText, true);
+
+      // Send and keep scanning (pause briefly to avoid duplicate reads)
+      sendAttendance(decodedText);
+      html5QrcodeScanner.pause();
+      setTimeout(() => { html5QrcodeScanner.resume(); }, 900);
+    }
+
+    document.getElementById('startScan').addEventListener('click', function() {
+      if (scanning) return;
+      html5QrcodeScanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: 250 },
+        onScanSuccess
+      ).then(() => {
+        scanning = true;
+        document.getElementById('startScan').style.display = 'none';
+        document.getElementById('stopScan').style.display = '';
+        setStatus("Scanner started. Point camera at ID.", true);
+      }).catch(err => {
+        console.log("Camera start error:", err);
+        setStatus("Camera start error: " + err, false);
+      });
+    });
+
+    document.getElementById('stopScan').addEventListener('click', function() {
+      if (!scanning) return;
+      html5QrcodeScanner.stop().then(() => {
+        scanning = false;
+        document.getElementById('stopScan').style.display = 'none';
+        document.getElementById('startScan').style.display = '';
+        setStatus("Scanner stopped.", true);
+      }).catch(err => {
+        console.log("Stop error:", err);
+        setStatus("Stop error: " + err, false);
+      });
+    });
   </script>
 </body>
 </html>
